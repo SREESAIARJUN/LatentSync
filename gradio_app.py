@@ -1,12 +1,12 @@
 import gradio as gr
 from pathlib import Path
-from scripts.inference import main
-from omegaconf import OmegaConf
-import argparse
 from datetime import datetime
+import argparse
+
 
 CONFIG_PATH = Path("configs/unet/stage2_512.yaml")
 CHECKPOINT_PATH = Path("checkpoints/latentsync_unet.pt")
+
 
 
 def process_video(
@@ -16,78 +16,50 @@ def process_video(
     inference_steps,
     seed,
 ):
+    import modal
+    
+    # Connect to Modal - use Function.from_name for deployed functions (Modal SDK 1.0+)
+    # For class methods, use "ClassName.method_name" format
+    infer_fn = modal.Function.from_name("latentsync", "LatentSync.infer")
+    
     # Create the temp directory if it doesn't exist
     output_dir = Path("./temp")
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Convert paths to absolute Path objects and normalize them
-    video_file_path = Path(video_path)
-    video_path = video_file_path.absolute().as_posix()
-    audio_path = Path(audio_path).absolute().as_posix()
-
+    
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-    # Set the output path for the processed video
-    output_path = str(output_dir / f"{video_file_path.stem}_{current_time}.mp4")  # Change the filename as needed
+    video_stem = Path(video_path).stem
+    output_path = output_dir / f"{video_stem}_{current_time}.mp4"
 
-    config = OmegaConf.load(CONFIG_PATH)
+    print(f"Processing video: {video_path} with audio: {audio_path}")
 
-    config["run"].update(
-        {
-            "guidance_scale": guidance_scale,
-            "inference_steps": inference_steps,
-        }
-    )
-
-    # Parse the arguments
-    args = create_args(video_path, audio_path, output_path, inference_steps, guidance_scale, seed)
-
+    # Read inputs
+    with open(video_path, "rb") as v:
+        video_bytes = v.read()
+    with open(audio_path, "rb") as a:
+        audio_bytes = a.read()
+        
     try:
-        result = main(
-            config=config,
-            args=args,
+        print("Calling Modal LatentSync.infer...")
+        # Call remote function
+        out_bytes = infer_fn.remote(
+            video_bytes=video_bytes, 
+            audio_bytes=audio_bytes, 
+            seed=int(seed), 
+            guidance_scale=float(guidance_scale), 
+            inference_steps=int(inference_steps)
         )
+        
+        # Write output
+        with open(output_path, "wb") as o:
+            o.write(out_bytes)
+            
         print("Processing completed successfully.")
-        return output_path  # Ensure the output path is returned
+        return str(output_path)
+        
     except Exception as e:
         print(f"Error during processing: {str(e)}")
         raise gr.Error(f"Error during processing: {str(e)}")
 
-
-def create_args(
-    video_path: str, audio_path: str, output_path: str, inference_steps: int, guidance_scale: float, seed: int
-) -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--inference_ckpt_path", type=str, required=True)
-    parser.add_argument("--video_path", type=str, required=True)
-    parser.add_argument("--audio_path", type=str, required=True)
-    parser.add_argument("--video_out_path", type=str, required=True)
-    parser.add_argument("--inference_steps", type=int, default=20)
-    parser.add_argument("--guidance_scale", type=float, default=1.5)
-    parser.add_argument("--temp_dir", type=str, default="temp")
-    parser.add_argument("--seed", type=int, default=1247)
-    parser.add_argument("--enable_deepcache", action="store_true")
-
-    return parser.parse_args(
-        [
-            "--inference_ckpt_path",
-            CHECKPOINT_PATH.absolute().as_posix(),
-            "--video_path",
-            video_path,
-            "--audio_path",
-            audio_path,
-            "--video_out_path",
-            output_path,
-            "--inference_steps",
-            str(inference_steps),
-            "--guidance_scale",
-            str(guidance_scale),
-            "--seed",
-            str(seed),
-            "--temp_dir",
-            "temp",
-            "--enable_deepcache",
-        ]
-    )
 
 
 # Create Gradio interface
