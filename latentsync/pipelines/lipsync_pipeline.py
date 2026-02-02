@@ -267,6 +267,12 @@ class LipsyncPipeline(DiffusionPipeline):
         print(f"Affine transforming {len(video_frames)} faces...")
         for frame in tqdm.tqdm(video_frames):
             face, box, affine_matrix = self.image_processor.affine_transform(frame)
+            if face is None:
+                # Face not detected, use dummy face and None for box/affine_matrix
+                face = torch.zeros(3, self.image_processor.resolution, self.image_processor.resolution, dtype=torch.uint8)
+                box = None
+                affine_matrix = None
+            
             faces.append(face)
             boxes.append(box)
             affine_matrices.append(affine_matrix)
@@ -278,6 +284,10 @@ class LipsyncPipeline(DiffusionPipeline):
         video_frames = video_frames[: faces.shape[0]]
         out_frames = []
         for index, face in enumerate(faces):
+            if boxes[index] is None:
+                out_frames.append(video_frames[index])
+                continue
+                
             x1, y1, x2, y2 = boxes[index]
             height = int(y2 - y1)
             width = int(x2 - x1)
@@ -461,10 +471,14 @@ class LipsyncPipeline(DiffusionPipeline):
             shutil.rmtree(temp_dir)
         os.makedirs(temp_dir, exist_ok=True)
 
+        print(f"[INFO] Writing temporary video to {os.path.join(temp_dir, 'video.mp4')}...")
         write_video(os.path.join(temp_dir, "video.mp4"), synced_video_frames, fps=25)
         # write_video(video_mask_path, masked_video_frames, fps=25)
 
+        print(f"[INFO] Writing temporary audio to {os.path.join(temp_dir, 'audio.wav')}...")
         sf.write(os.path.join(temp_dir, "audio.wav"), audio_samples, audio_sample_rate)
 
+        print(f"[INFO] Merging video and audio using ffmpeg to {video_out_path}...")
         command = f"ffmpeg -y -loglevel error -nostdin -i {os.path.join(temp_dir, 'video.mp4')} -i {os.path.join(temp_dir, 'audio.wav')} -c:v libx264 -c:a aac -q:v 0 -q:a 0 {video_out_path}"
         subprocess.run(command, shell=True)
+        print(f"[INFO] Merging complete.")

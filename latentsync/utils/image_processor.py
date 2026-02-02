@@ -126,11 +126,9 @@ class ImageProcessor:
             if detected_faces is not None:
                 lm68 = detected_faces[0]
                 self.last_lm68 = lm68
-            elif self.last_lm68 is not None:
-                print("[WARNING] Face not detected, using previous frame coordinates.")
-                lm68 = self.last_lm68
             else:
-                raise RuntimeError("Face not detected and no previous frame available.")
+                print("[INFO] Face not detected in this frame, skipping generation.")
+                return None, None, None
 
         points = self.smoother.smooth(lm68)
         lmk3_ = np.zeros((3, 2))
