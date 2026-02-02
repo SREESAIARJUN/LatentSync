@@ -46,6 +46,8 @@ image = (
     .pip_install("insightface==0.7.3")
     # Install huggingface_hub for downloading weights
     .pip_install("huggingface_hub")
+    # Pre-download face_alignment models (s3fd and 2DFAN4) during build
+    .run_commands('python -c "import face_alignment; face_alignment.FaceAlignment(face_alignment.LandmarksType.TWO_D, device=\'cpu\', flip_input=False)"')
     .add_local_dir("latentsync", remote_path="/root/latentsync")
     .add_local_dir("configs", remote_path="/root/configs")
     .add_local_dir("scripts", remote_path="/root/scripts")
@@ -89,6 +91,9 @@ def download_models():
 class LatentSync:
     @modal.enter()
     def setup(self):
+        import warnings
+        warnings.filterwarnings("ignore", category=FutureWarning)
+        warnings.filterwarnings("ignore", category=UserWarning)
         import torch
         from omegaconf import OmegaConf
         from diffusers import AutoencoderKL, DDIMScheduler
